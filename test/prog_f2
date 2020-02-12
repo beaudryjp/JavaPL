@@ -1,0 +1,50 @@
+.method public static main(I)I
+    sipush 0 
+    istore 1 
+    sipush 0 
+    istore 2 
+    sipush 5 
+    dup 
+    istore 1 
+    pop 
+    sipush 10 
+    dup 
+    istore 2 
+    pop 
+    iload 0 
+    iload 1 
+    isub 
+    iflt L0 
+    goto L1 
+L0:
+    iload 0 
+    iload 0 
+    imul 
+    iload 2 
+    isub 
+    iflt L3 
+    goto L4 
+L3:
+    sipush 10 
+    dup 
+    istore 1 
+    pop 
+    goto L5 
+L4:
+    sipush 0 
+    dup 
+    istore 1 
+    pop 
+L5:
+    goto L2 
+L1:
+L2:
+    iload 1 
+    iload 2 
+    iadd 
+    ireturn 
+    nop
+    .limit stack 2
+    .limit locals 3
+.end method
+

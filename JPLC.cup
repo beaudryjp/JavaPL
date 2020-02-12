@@ -1,0 +1,232 @@
+import java_cup.runtime.*;
+
+/*
+parser code {:
+  @Override
+  public void report_error(String message, Object info) {
+      Generator.comment("syntax error: " + info);
+      Generator.error();
+      Generator.halt();
+  }
+:}
+*/
+
+/* Terminals */
+terminal                OP, CP, OB, CB, SEMICOLON, COMMA;
+terminal                PLUS, MINUS, MUL, DIV, UMINUS, MOD;
+terminal                ASIG, INC, DEC;
+terminal                AND, OR, NOT;
+terminal                LT, GT, LTOREQ, GTOREQ, EQ, NOTEQ;
+terminal                PRINT, RETURN;
+terminal                VAR_INT;
+terminal        String  VAR, INT;
+terminal        String  FOR, IF, ELSE, WHILE, DO;
+
+/* Non terminals */
+non terminal            listSentence;
+non terminal            sentence;
+non terminal            elseCond;
+non terminal            ifSentence;
+non terminal            whileSentence;
+non terminal            doWhileSentence;
+non terminal            forSentence;
+non terminal            printSentence;
+non terminal            blockSentence;
+non terminal            returnSentence;
+non terminal            methodSentence;
+non terminal            assignmentSentence;
+non terminal            assignment;
+non terminal    String  ifPART;
+non terminal    String  whilePART;
+non terminal    String  doPART;
+non terminal    String  forPART;
+non terminal    String  type;
+non terminal    String  expression;
+non terminal    String  varDeclaration;
+non terminal    String  valueDeclaration;
+non terminal    Tag     condition;
+
+/* Precedences */
+/* https://ee.hawaii.edu/~tep/EE160/Book/chap5/_28291_table577.gif */
+precedence  left        COMMA;
+precedence  right       ASIG;
+precedence  left        OR;
+precedence  left        AND;
+precedence  left        EQ, NOTEQ, LT, LTOREQ, GT, GTOREQ;
+precedence  left        PLUS, MINUS;
+precedence  left        MUL, DIV, MOD;
+precedence  left        UMINUS;
+precedence  right       NOT, INC, DEC;
+precedence  nonassoc    IF;
+precedence  nonassoc    ELSE;
+
+/* Grammar */
+start with listSentence;
+
+listSentence        ::= sentence
+                    |   listSentence sentence
+;
+
+sentence            ::= varDeclaration SEMICOLON
+                    |   assignmentSentence
+                    |   methodSentence
+                    |   ifSentence
+                    |   whileSentence
+                    |   doWhileSentence
+                    |   forSentence
+                    |   printSentence
+                    |   blockSentence   
+                    |   returnSentence                      
+;
+
+
+expression          ::= expression:e1 PLUS expression:e2            {:  Generator.arithmetic(Generator.PLUS); :}
+                    |   expression:e1 MINUS expression:e2           {:  Generator.arithmetic(Generator.MINUS); :}
+                    |   expression:e1 MUL expression:e2             {:  Generator.arithmetic(Generator.MUL); :}
+                    |   expression:e1 DIV expression:e2             {:  Generator.arithmetic(Generator.DIV); :}
+                    |   MINUS expression:e                          {:  Generator.arithmetic(Generator.MINU); :} %prec UMINUS
+                    |   VAR:v                                       {:  int tmp = SymbolTable.findVariable(v);
+                                                                        if(tmp == -1) Generator.varNotDeclared(v); 
+                                                                        RESULT = v;
+                                                                        System.out.println("\tiload " + tmp);
+                                                                        SymbolTable.push(tmp);
+                                                                    :}
+                    |   assignment
+                    |   INT:n                                       {:  RESULT = n;
+                                                                        System.out.println("\tsipush " + n);
+                                                                        SymbolTable.push(Integer.parseInt(n));
+                                                                    :}     
+                    |   OP expression:e CP
+                    |   VAR:v OP expression CP                     {:
+                                                                        System.out.println("\tinvokestatic JPL/" + v + "(I)I");
+                                                                        SymbolTable.pop();
+                                                                    :}
+;
+
+condition           ::= expression:e1 EQ expression:e2              {:  RESULT = Generator.condition(Generator.EQ); :}
+                    |   expression:e1 NOTEQ expression:e2           {:  RESULT = Generator.condition(Generator.NOTEQ); :}
+                    |   expression:e1 LT expression:e2              {:  RESULT = Generator.condition(Generator.LT); :}
+                    |   expression:e1 LTOREQ expression:e2          {:  RESULT = Generator.condition(Generator.LTOREQ); :}
+                    |   expression:e1 GT expression:e2              {:  RESULT = Generator.condition(Generator.GT); :}
+                    |   expression:e1 GTOREQ expression:e2          {:  RESULT = Generator.condition(Generator.GTOREQ); :}
+                    |   NOT condition:c1                            {:  RESULT = Generator.operator(Generator.NOT, c1, null); :}
+                    |   condition:c1 AND                            {:  Generator.label(c1.getT()); :} 
+                        condition:c2                                {:  RESULT = Generator.operator(Generator.AND, c1, c2); :}
+
+                    |   condition:c1 OR                             {:  Generator.label(c1.getF()); :} 
+                        condition:c2                                {:  RESULT = Generator.operator(Generator.OR, c1, c2); :}
+
+                    |   OP condition:c CP                           {:  RESULT = c; :}
+;
+
+assignmentSentence ::=  assignment                                  {:  System.out.println("\tpop");
+                                                                        SymbolTable.pop();
+                                                                    :} 
+                        SEMICOLON
+;
+
+methodSentence      ::= type VAR:method                             {:  System.out.println(".method public static " + method + "(I)I"); :} 
+                        OP type VAR:parameter CP                    {:  SymbolTable.declare(parameter); :} 
+                        OB listSentence CB                          {:  System.out.println("\t.limit stack " + SymbolTable.maxStackSize());
+                                                                        System.out.println("\t.limit locals " + SymbolTable.variablesSize());
+                                                                        System.out.println(".end method");
+                                                                        SymbolTable.endMethod();
+                                                                    :}
+;
+
+ifSentence          ::= ifPART:tag OP condition:c                   {:  Generator.label(c.getT()); :}  
+                        CP sentence                                 {:  Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getF()); 
+                                                                    :}  
+                        elseCond                                    {:  Generator.label(tag); :}
+;
+
+whileSentence       ::= whilePART:tag                               {:  Generator.label(tag); :}   
+                        OP condition:c                              {:  Generator.label(c.getT()); :}            
+                        CP sentence                                 {:  Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getF()); 
+                                                                    :}
+;
+
+doWhileSentence     ::= doPART:tag                                  {:  Generator.label(tag); :}                
+                        sentence WHILE OP condition:c CP SEMICOLON  {:  Generator.label(c.getT());  
+                                                                        Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getF()); 
+                                                                    :} 
+;
+
+forSentence         ::= forPART:tag OP expression:e1 SEMICOLON      {:  Generator.label(tag); :}                  
+                        condition:c SEMICOLON                       {:  RESULT = Generator.newLabel();  
+                                                                        Generator.label(RESULT.toString()); 
+                                                                    :}  
+                        expression:e2 CP                            {:  Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getT()); 
+                                                                    :}           
+                        sentence                                    {:  Generator.gotoLabel(RESULT.toString());  
+                                                                        Generator.label(c.getF()); 
+                                                                    :}
+;
+
+printSentence       ::= PRINT OP expression:e CP SEMICOLON          {:  Generator.print(e); :}
+;
+
+blockSentence       ::= OB listSentence CB   
+;
+
+returnSentence      ::= RETURN expression:e SEMICOLON               {:  System.out.println("\tireturn"); 
+                                                                        System.out.println("\tnop");
+                                                                    :}
+;
+
+elseCond            ::= ELSE sentence
+                    |
+;
+
+varDeclaration      ::= type VAR:v                                  {:  System.out.println("\tsipush 0"); //no assignation so, default value is 0
+                                                                        SymbolTable.push(0);
+                                                                        SymbolTable.declare(v);
+                                                                        System.out.println("\tistore " + SymbolTable.findVariable(v));
+                                                                        SymbolTable.pop();
+                                                                    :}
+                    |   type VAR:v ASIG expression:e                {:  SymbolTable.declare(v);
+                                                                        System.out.println("\tistore " + SymbolTable.findVariable(v));
+                                                                        SymbolTable.pop();
+                                                                    :}
+                    |   varDeclaration:t COMMA valueDeclaration:v
+;
+
+valueDeclaration    ::= VAR:v                                       {:  System.out.println("\tsipush 0"); //no assignation so, default value is 0
+                                                                        SymbolTable.push(0);
+                                                                        SymbolTable.declare(v);
+                                                                        System.out.println("\tistore " + SymbolTable.findVariable(v));
+                                                                        SymbolTable.pop();
+                                                                    :}
+                    |   VAR:v ASIG expression:e                     {:  SymbolTable.declare(v);
+                                                                        System.out.println("\tistore " + SymbolTable.findVariable(v));
+                                                                        SymbolTable.pop();
+                                                                    :}
+;
+
+assignment          ::= VAR:v ASIG expression:e                     {:  if(SymbolTable.findVariable(v) == -1) 
+                                                                            Generator.varNotDeclared(v);
+                                                                        System.out.println("\tdup");
+                                                                        SymbolTable.push(SymbolTable.peek());
+                                                                        System.out.println("\tistore " + SymbolTable.findVariable(v));
+                                                                        SymbolTable.pop();
+                                                                    :}
+;
+
+type                ::= VAR_INT                                     {:  RESULT = Type.INT; :}
+;
+
+ifPART              ::= IF                                          {:  RESULT = Generator.newLabel(); :}
+;
+
+whilePART           ::= WHILE                                       {:  RESULT = Generator.newLabel(); :}
+;
+
+doPART              ::= DO                                          {:  RESULT = Generator.newLabel(); :}
+;
+
+forPART             ::= FOR                                         {:  RESULT = Generator.newLabel(); :}
+;
